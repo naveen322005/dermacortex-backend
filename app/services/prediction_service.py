@@ -15,6 +15,10 @@ from PIL import Image
 from app.database import get_predictions_collection
 from app.models.prediction import PredictionResult, PredictionResponse
 from app.services.auth_service import AuthService
+import google.generativeai as genai
+import json
+import re
+from app.config import settings
 
 
 # =========================================================
@@ -316,50 +320,132 @@ class PredictionService:
         skin_type: str = "normal"
     ) -> Tuple[List[PredictionResult], float]:
         """
-        Simulate AI-powered skin disease prediction
-        In production, this would call a real Vision AI model
+        AI-powered skin disease prediction using Google Gemini
+        Falls back to random if Gemini unavailable
         
         Returns: (list of predictions, confidence score)
         """
-        start_time = time.time()
-        
-        # Simulate processing time
-        time.sleep(0.5)
-        
-        # Generate predictions based on random selection
-        num_predictions = random.randint(3, 5)
-        selected_diseases = random.sample(SKIN_DISEASES, num_predictions)
-        
-        # Generate confidence scores (normalize to sum to ~1)
-        base_confidences = [random.uniform(0.05, 0.7) for _ in range(num_predictions)]
-        total = sum(base_confidences)
-        normalized_confidences = [c / total for c in base_confidences]
-        
-        # Sort by confidence (descending)
-        sorted_indices = sorted(range(len(normalized_confidences)), 
-                               key=lambda i: normalized_confidences[i], 
-                               reverse=True)
-        
-        predictions = []
-        for i, idx in enumerate(sorted_indices):
-            disease = selected_diseases[idx]
-            confidence = normalized_confidences[idx]
+        # Fallback to random if no Gemini key
+        if not getattr(settings, 'GEMINI_API_KEY', None):
+            # Existing random logic (unchanged)
+            num_predictions = random.randint(3, 5)
+            selected_diseases = random.sample(SKIN_DISEASES, num_predictions)
+            base_confidences = [random.uniform(0.05, 0.7) for _ in range(num_predictions)]
+            total = sum(base_confidences)
+            normalized_confidences = [c / total for c in base_confidences]
+            sorted_indices = sorted(range(len(normalized_confidences)), 
+                                   key=lambda i: normalized_confidences[i], 
+                                   reverse=True)
+            predictions = []
+            for i, idx in enumerate(sorted_indices):
+                disease = selected_diseases[idx]
+                confidence = normalized_confidences[idx]
+                prediction = PredictionResult(
+                    disease=disease["name"],
+                    confidence=confidence,
+                    description=disease["description"],
+                    recommendation=disease["recommendation"],
+                    ingredients=get_ingredient_recommendations(disease["name"])["safe"]
+                )
+                predictions.append(prediction)
+            return predictions, normalized_confidences[0]
+
+        try:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
             
-            prediction = PredictionResult(
-                disease=disease["name"],
-                confidence=confidence,
-                description=disease["description"],
-                recommendation=disease["recommendation"],
-                ingredients=disease["ingredients"]
-            )
-            predictions.append(prediction)
+            # Prepare image (resize to 512x512, RGB)
+            image_resized = image.copy()
+            image_resized.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            if image_resized.mode != 'RGB':
+                image_resized = image_resized.convert('RGB')
+            
+            prompt = """
+Analyze this skin image for disease/condition. Provide exactly 3-5 predictions in this JSON format only (no other text):
+[
+  {"disease": "Disease Name", "confidence": "85%", "description": "Brief description", "recommendation": "Actionable advice"},
+  ...
+]
+Sort by confidence descending. Use realistic skin conditions.
+"""
+            
+            response = model.generate_content([prompt, image_resized])
+            response_text = response.text.strip()
+            
+            # Clean markdown code blocks
+            response_text = re.sub(r'```json\s*', '', response_text)
+            response_text = re.sub(r'```\s*$', '', response_text)
+            response_text = response_text.strip()
+            
+            # Parse JSON
+            gemini_predictions = json.loads(response_text)
+            
+            if not isinstance(gemini_predictions, list) or len(gemini_predictions) < 3:
+                raise ValueError("Invalid Gemini response")
+            
+            # Process predictions
+            raw_predictions = []
+            for pred in gemini_predictions[:5]:  # Max 5
+                conf_str = pred.get('confidence', '50%')
+                # Extract number from % string e.g. "82%" -> 82 -> 0.82
+                conf_num = int(re.sub(r'[^0-9]', '', conf_str)) / 100.0
+                disease = pred.get('disease', 'Unknown')
+                ingredients = get_ingredient_recommendations(disease)['safe']
+                raw_predictions.append({
+                    'disease': disease,
+                    'confidence': conf_num,
+                    'description': pred.get('description', ''),
+                    'recommendation': pred.get('recommendation', ''),
+                    'ingredients': ingredients
+                })
+            
+            # Normalize confidences to sum ~1
+            conf_sum = sum(p['confidence'] for p in raw_predictions)
+            if conf_sum > 0:
+                for p in raw_predictions:
+                    p['confidence'] /= conf_sum
+            
+            # At least 3
+            while len(raw_predictions) < 3:
+                fallback = random.choice(SKIN_DISEASES)
+                raw_predictions.append({
+                    'disease': fallback['name'],
+                    'confidence': 0.05,
+                    'description': fallback['description'],
+                    'recommendation': fallback['recommendation'],
+                    'ingredients': get_ingredient_recommendations(fallback['name'])['safe']
+                })
+            
+            # Sort descending and create objects
+            raw_predictions.sort(key=lambda x: x['confidence'], reverse=True)
+            predictions = [PredictionResult(**p) for p in raw_predictions]
+            
+            return predictions, predictions[0].confidence
         
-        # Calculate overall confidence (top prediction)
-        confidence_score = normalized_confidences[0]
-        
-        processing_time = int((time.time() - start_time) * 1000)
-        
-        return predictions, confidence_score
+        except Exception as e:
+            print(f"Gemini error, falling back: {e}")
+            # Fallback same as above
+            num_predictions = random.randint(3, 5)
+            selected_diseases = random.sample(SKIN_DISEASES, num_predictions)
+            base_confidences = [random.uniform(0.05, 0.7) for _ in range(num_predictions)]
+            total = sum(base_confidences)
+            normalized_confidences = [c / total for c in base_confidences]
+            sorted_indices = sorted(range(len(normalized_confidences)), 
+                                   key=lambda i: normalized_confidences[i], 
+                                   reverse=True)
+            predictions = []
+            for i, idx in enumerate(sorted_indices):
+                disease = selected_diseases[idx]
+                confidence = normalized_confidences[idx]
+                prediction = PredictionResult(
+                    disease=disease["name"],
+                    confidence=confidence,
+                    description=disease["description"],
+                    recommendation=disease["recommendation"],
+                    ingredients=get_ingredient_recommendations(disease["name"])["safe"]
+                )
+                predictions.append(prediction)
+            return predictions, normalized_confidences[0]
     
     @staticmethod
     async def create_prediction(

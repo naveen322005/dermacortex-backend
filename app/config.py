@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     
+    GEMINI_API_KEY: Optional[str] = None
+
     # Class configuration
     class Config:
         env_file = ".env"
