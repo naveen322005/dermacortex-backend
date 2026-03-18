@@ -35,3 +35,4 @@ starlette==0.38.6
 # Google Cloud Vision
 google-cloud-vision==3.7.2
 
+Pillow
