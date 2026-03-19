@@ -15,7 +15,7 @@ from PIL import Image
 from app.database import get_predictions_collection
 from app.models.prediction import PredictionResult, PredictionResponse
 from app.services.auth_service import AuthService
-import google.generativeai as genai
+from google import genai
 import json
 import re
 from app.config import settings
@@ -351,8 +351,7 @@ class PredictionService:
             return predictions, normalized_confidences[0]
 
         try:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-1.5-pro')
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
             
             # Prepare image (resize to 512x512, RGB)
             image_resized = image.copy()
@@ -379,22 +378,28 @@ Do NOT include markdown or extra text.
             img_byte_arr = io.BytesIO()
             image_resized.save(img_byte_arr, format='JPEG')
             img_byte_arr = img_byte_arr.getvalue()
-            response = model.generate_content([
-                prompt,
-                {
-                    "mime_type": "image/jpeg",
-                    "data": img_byte_arr
-                }
-            ])
-            response_text = getattr(response, "text", None)
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=[
+                    prompt,
+                    {
+                        "mime_type": "image/jpeg",
+                        "data": img_byte_arr
+                    }
+                ]
+            )
+            # Extract text safely
+            response_text = ""
 
-            if not response_text and hasattr(response, "candidates"):
+            if hasattr(response, "text") and response.text:
+                response_text = response.text
+            elif hasattr(response, "candidates"):
                 try:
                     response_text = response.candidates[0].content.parts[0].text
                 except Exception:
                     response_text = ""
 
-            response_text = (response_text or "").strip()
+            response_text = response_text.strip()
 
             if not response_text:
                 raise ValueError("Empty response from Gemini")
