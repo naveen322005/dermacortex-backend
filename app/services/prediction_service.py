@@ -326,7 +326,7 @@ class PredictionService:
         Returns: (list of predictions, confidence score)
         """
         # Fallback to random if no Gemini key
-        if not getattr(settings, 'GEMINI_API_KEY', None):
+        if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY.strip() == "":
             # Existing random logic (unchanged)
             num_predictions = random.randint(3, 5)
             selected_diseases = random.sample(SKIN_DISEASES, num_predictions)
@@ -352,7 +352,7 @@ class PredictionService:
 
         try:
             genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-1.0-pro-vision')
+            model = genai.GenerativeModel('gemini-1.5-pro')
             
             # Prepare image (resize to 512x512, RGB)
             image_resized = image.copy()
@@ -361,24 +361,58 @@ class PredictionService:
                 image_resized = image_resized.convert('RGB')
             
             prompt = """
-Analyze this skin image for disease/condition. Provide exactly 3-5 predictions in this JSON format only (no other text):
+Analyze this skin image and return ONLY JSON (no explanation).
+
+Return 3-5 predictions in this format:
 [
-  {"disease": "Disease Name", "confidence": "85%", "description": "Brief description", "recommendation": "Actionable advice"},
-  ...
+{
+"disease": "Disease Name",
+"confidence": "85%",
+"description": "Short description",
+"recommendation": "Actionable advice"
+}
 ]
-Sort by confidence descending. Use realistic skin conditions.
+
+Sort by highest confidence first.
+Do NOT include markdown or extra text.
 """
+            img_byte_arr = io.BytesIO()
+            image_resized.save(img_byte_arr, format='JPEG')
+            img_byte_arr = img_byte_arr.getvalue()
+            response = model.generate_content([
+                prompt,
+                {
+                    "mime_type": "image/jpeg",
+                    "data": img_byte_arr
+                }
+            ])
+            response_text = getattr(response, "text", None)
+
+            if not response_text and hasattr(response, "candidates"):
+                try:
+                    response_text = response.candidates[0].content.parts[0].text
+                except Exception:
+                    response_text = ""
+
+            response_text = (response_text or "").strip()
+
+            if not response_text:
+                raise ValueError("Empty response from Gemini")
             
-            response = model.generate_content([prompt, image_resized])
-            response_text = response.text.strip()
+            # Enhanced JSON extraction - find JSON array even with extra text
+            json_match = re.search(r'\[\s*{[^}]*}\s*(?:,\s*{[^}]*}\s*)*\]', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                json_str = response_text
             
-            # Clean markdown code blocks
-            response_text = re.sub(r'```json\s*', '', response_text)
-            response_text = re.sub(r'```\s*$', '', response_text)
-            response_text = response_text.strip()
+            # Clean any remaining markdown
+            json_str = re.sub(r'```json?\s*', '', json_str, flags=re.IGNORECASE)
+            json_str = re.sub(r'```?\s*$', '', json_str, flags=re.IGNORECASE)
+            json_str = json_str.strip()
             
             # Parse JSON
-            gemini_predictions = json.loads(response_text)
+            gemini_predictions = json.loads(json_str)
             
             if not isinstance(gemini_predictions, list) or len(gemini_predictions) < 3:
                 raise ValueError("Invalid Gemini response")
@@ -386,9 +420,18 @@ Sort by confidence descending. Use realistic skin conditions.
             # Process predictions
             raw_predictions = []
             for pred in gemini_predictions[:5]:  # Max 5
-                conf_str = pred.get('confidence', '50%')
-                # Extract number from % string e.g. "82%" -> 82 -> 0.82
-                conf_num = int(re.sub(r'[^0-9]', '', conf_str)) / 100.0
+                conf_str = str(pred.get('confidence', '50%'))
+                # Robust confidence parsing: "85%", "0.85", "85" -> float 0-1
+                try:
+                    conf_clean = re.sub(r'[% ,]', '', conf_str).strip()
+                    if '.' in conf_clean:
+                        conf_num = float(conf_clean)
+                    else:
+                        conf_num = int(conf_clean) / 100.0
+                    conf_num = max(0.0, min(1.0, conf_num))  # Clamp 0-1
+                except (ValueError, ZeroDivisionError):
+                    conf_num = 0.5  # Default fallback
+                
                 disease = pred.get('disease', 'Unknown')
                 ingredients = get_ingredient_recommendations(disease)['safe']
                 raw_predictions.append({
@@ -423,7 +466,7 @@ Sort by confidence descending. Use realistic skin conditions.
             return predictions, predictions[0].confidence
         
         except Exception as e:
-            print(f"Gemini error, falling back: {e}")
+            print("Gemini failed, using fallback:", str(e))
             # Fallback same as above
             num_predictions = random.randint(3, 5)
             selected_diseases = random.sample(SKIN_DISEASES, num_predictions)
