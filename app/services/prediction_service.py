@@ -352,7 +352,7 @@ class PredictionService:
 
         try:
             genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
             # Prepare image (resize to 512x512, RGB)
             image_resized = image.copy()
