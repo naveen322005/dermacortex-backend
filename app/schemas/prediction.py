@@ -34,6 +34,8 @@ class PredictionItemSchema(BaseModel):
     disease: str
     confidence: int = Field(..., ge=0, le=100, description="Confidence as percentage (0-100)")
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class TopPredictionSchema(BaseModel):
     """Schema for the top prediction with full details"""
@@ -42,6 +44,8 @@ class TopPredictionSchema(BaseModel):
     description: str
     recommendation: str
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class PredictionResponseSchema(BaseModel):
     """Schema for the complete prediction response"""
@@ -49,6 +53,8 @@ class PredictionResponseSchema(BaseModel):
     predictions: List[PredictionItemSchema]
     ingredients_safe: List[str] = Field(default_factory=list)
     ingredients_avoid: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class DiagnosisResultSchema(BaseModel):
@@ -61,6 +67,8 @@ class DiagnosisResultSchema(BaseModel):
     labels: List[str] = Field(..., description="Labels detected by Vision API")
     prediction_id: Optional[str] = Field(None, description="Database ID of the stored prediction")
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class PredictionResultSchema(BaseModel):
     """Schema for a single prediction result"""
@@ -70,11 +78,15 @@ class PredictionResultSchema(BaseModel):
     recommendation: str
     ingredients: Optional[List[str]] = None
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class IngredientsResponseSchema(BaseModel):
     """Schema for ingredient recommendations"""
     ingredients_safe: List[str] = Field(default_factory=list)
     ingredients_avoid: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class DiagnosisPredictionSchema(BaseModel):
@@ -84,6 +96,8 @@ class DiagnosisPredictionSchema(BaseModel):
     ingredients_safe: List[str] = Field(default_factory=list)
     ingredients_avoid: List[str] = Field(default_factory=list)
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class DiagnosisResponseSchema(BaseModel):
     """Schema for immediate diagnosis response"""
@@ -91,11 +105,15 @@ class DiagnosisResponseSchema(BaseModel):
     prediction: DiagnosisPredictionSchema
     message: Optional[str] = "Diagnosis completed successfully"
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class ChatMessageSchema(BaseModel):
     """Schema for chatbot message"""
     message: str
     conversation_id: Optional[str] = None
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class ChatResponseSchema(BaseModel):
@@ -104,6 +122,8 @@ class ChatResponseSchema(BaseModel):
     response: str
     conversation_id: Optional[str] = None
     suggestions: Optional[List[str]] = None
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class HistoryItemSchema(BaseModel):
@@ -115,6 +135,8 @@ class HistoryItemSchema(BaseModel):
     created_at: Optional[str] = None
     status: str
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class HistoryResponseSchema(BaseModel):
     """Schema for prediction history response"""
@@ -122,6 +144,8 @@ class HistoryResponseSchema(BaseModel):
     history: List[HistoryItemSchema]
     page: int
     page_size: int
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class PredictionListResponseSchema(BaseModel):
@@ -131,6 +155,8 @@ class PredictionListResponseSchema(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class PredictionResponseFullSchema(BaseModel):
@@ -151,4 +177,3 @@ class PredictionResponseFullSchema(BaseModel):
     status: str
     model_version: str
     processing_time_ms: Optional[int] = None
-

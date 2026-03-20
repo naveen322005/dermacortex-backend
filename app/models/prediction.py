@@ -4,8 +4,8 @@ MongoDB document schema for skin disease predictions
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class PredictionResult(BaseModel):
@@ -49,11 +49,7 @@ class Prediction(BaseModel):
     model_version: str = Field(default="1.0.0")
     processing_time_ms: Optional[int] = None
     
-model_config = ConfigDict(protected_namespaces=())
-
-    class Config:
-        """Pydantic config"""
-        from_attributes = True
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class PredictionResponse(BaseModel):
@@ -76,11 +72,6 @@ class PredictionResponse(BaseModel):
     
     model_config = ConfigDict(protected_namespaces=())
 
-    class Config:
-        """Pydantic config"""
-        populate_by_name = True
-        from_attributes = True
-
 
 class PredictionCreate(BaseModel):
     """Prediction creation request model"""
@@ -99,3 +90,4 @@ class PredictionListResponse(BaseModel):
     page_size: int
     has_more: bool
 
+    model_config = ConfigDict(protected_namespaces=())
