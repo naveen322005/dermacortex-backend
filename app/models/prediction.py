@@ -49,6 +49,8 @@ class Prediction(BaseModel):
     model_version: str = Field(default="1.0.0")
     processing_time_ms: Optional[int] = None
     
+model_config = ConfigDict(protected_namespaces=())
+
     class Config:
         """Pydantic config"""
         from_attributes = True
@@ -72,6 +74,8 @@ class PredictionResponse(BaseModel):
     model_version: str
     processing_time_ms: Optional[int] = None
     
+    model_config = ConfigDict(protected_namespaces=())
+
     class Config:
         """Pydantic config"""
         populate_by_name = True

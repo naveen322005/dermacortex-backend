@@ -135,7 +135,7 @@ class PredictionListResponseSchema(BaseModel):
 
 class PredictionResponseFullSchema(BaseModel):
     """Schema for prediction response"""
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
     
     id: str = Field(..., alias="_id")
     user_id: str

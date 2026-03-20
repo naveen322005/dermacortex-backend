@@ -15,10 +15,13 @@ from PIL import Image
 from app.database import get_predictions_collection
 from app.models.prediction import PredictionResult, PredictionResponse
 from app.services.auth_service import AuthService
+import logging
 from google import genai
 import json
 import re
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -310,7 +313,7 @@ class PredictionService:
             
             return image
         except Exception as e:
-            print(f"Error processing image: {e}")
+            logger.warning("Image processing error: %s", str(e))
             return None
     
     @staticmethod
@@ -326,7 +329,7 @@ class PredictionService:
         Returns: (list of predictions, confidence score)
         """
         # Fallback to random if no Gemini key
-        if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY.strip() == "":
+        if not getattr(settings, "GEMINI_API_KEY", None):
             # Existing random logic (unchanged)
             num_predictions = random.randint(3, 5)
             selected_diseases = random.sample(SKIN_DISEASES, num_predictions)
@@ -416,8 +419,11 @@ Do NOT include markdown or extra text.
             json_str = re.sub(r'```?\s*$', '', json_str, flags=re.IGNORECASE)
             json_str = json_str.strip()
             
-            # Parse JSON
-            gemini_predictions = json.loads(json_str)
+            # Parse JSON with safety
+            try:
+                gemini_predictions = json.loads(json_str)
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON from Gemini")
             
             if not isinstance(gemini_predictions, list) or len(gemini_predictions) < 3:
                 raise ValueError("Invalid Gemini response")
@@ -471,7 +477,7 @@ Do NOT include markdown or extra text.
             return predictions, predictions[0].confidence
         
         except Exception as e:
-            print("Gemini failed, using fallback:", str(e))
+            logger.error("Gemini failed, using fallback: %s", str(e))
             # Fallback same as above
             num_predictions = random.randint(3, 5)
             selected_diseases = random.sample(SKIN_DISEASES, num_predictions)
