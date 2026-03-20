@@ -354,7 +354,7 @@ class PredictionService:
             return predictions, normalized_confidences[0]
 
         try:
-            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            genai.configure(api_key=settings.GEMINI_API_KEY)
             
             # Prepare image (resize to 512x512, RGB)
             image_resized = image.copy()
@@ -381,10 +381,8 @@ Do NOT include markdown or extra text.
             img_byte_arr = io.BytesIO()
             image_resized.save(img_byte_arr, format='JPEG')
             img_byte_arr = img_byte_arr.getvalue()
-            response = client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=[prompt, image_resized]
-            )
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content([prompt, image_resized])
             # Extract text safely
             response_text = ""
 
