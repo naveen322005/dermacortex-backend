@@ -16,7 +16,7 @@ from app.database import get_predictions_collection
 from app.models.prediction import PredictionResult, PredictionResponse
 from app.services.auth_service import AuthService
 import logging
-import google.generativeai as genai
+from google import genai
 import json
 import re
 from app.config import settings
