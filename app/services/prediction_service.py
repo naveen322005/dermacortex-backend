@@ -16,7 +16,7 @@ from app.database import get_predictions_collection
 from app.models.prediction import PredictionResult, PredictionResponse
 from app.services.auth_service import AuthService
 import logging
-from google import genai
+import google.generativeai as genai
 import json
 import re
 from app.config import settings
@@ -383,13 +383,7 @@ Do NOT include markdown or extra text.
             img_byte_arr = img_byte_arr.getvalue()
             response = client.models.generate_content(
                 model="gemini-1.5-flash",
-                contents=[
-                    prompt,
-                    {
-                        "mime_type": "image/jpeg",
-                        "data": img_byte_arr
-                    }
-                ]
+                contents=[prompt, image_resized]
             )
             # Extract text safely
             response_text = ""
@@ -564,7 +558,7 @@ Do NOT include markdown or extra text.
         
         # Create response
         response = PredictionResponse(
-            id=str(prediction_doc["_id"]),
+            _id=str(prediction_doc["_id"]),
             user_id=prediction_doc["user_id"],
             image_url=prediction_doc["image_url"],
             predictions=predictions,

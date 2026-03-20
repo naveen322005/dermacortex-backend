@@ -55,7 +55,7 @@ class Prediction(BaseModel):
 class PredictionResponse(BaseModel):
     """Prediction response model"""
     
-    id: str = Field(..., alias="_id")
+    id: str = Field(alias="_id")
     user_id: str
     image_url: str
     predictions: List[PredictionResult]
