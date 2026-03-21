@@ -453,6 +453,8 @@ Medical accuracy required. No extra text."""
         
         except Exception as e:
             logger.error(f"Gemini failed with structured output, using fallback: {str(e)}")
+            # ✅ FIX: define image
+            image = Image.open(io.BytesIO(image_bytes))
             # EXACT existing fallback logic
 
         try:
@@ -777,4 +779,3 @@ Do NOT include markdown or extra text.
         except Exception:
             return None
 
-#done
