@@ -17,9 +17,19 @@ from app.models.prediction import PredictionResult, PredictionResponse
 from app.services.auth_service import AuthService
 import logging
 from google import genai
-import json
-import re
+from google.genai import types
+import base64
+from pydantic import BaseModel
 from app.config import settings
+
+class DiseaseResult(BaseModel):
+    disease: str
+    confidence: float
+    description: str
+    recommendation: str
+
+class GeminiResponse(BaseModel):
+    top_diseases: List[DiseaseResult]
 
 logger = logging.getLogger(__name__)
 
@@ -293,37 +303,26 @@ class PredictionService:
     """Prediction service class"""
     
     @staticmethod
-    def process_image_base64(image_base64: str) -> Optional[Image.Image]:
+    def process_image_base64(image_base64: str) -> str:
         """
-        Process base64 encoded image
-        Returns PIL Image object or None if invalid
+        Clean base64 string for Gemini (remove prefix)
+        Returns clean base64 or original if invalid
         """
         try:
-            # Remove data URL prefix if present
             if "base64," in image_base64:
-                image_base64 = image_base64.split("base64,")[1]
-            
-            # Decode base64
-            image_data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(image_data))
-            
-            # Convert to RGB if necessary
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-            
-            return image
-        except Exception as e:
-            logger.warning("Image processing error: %s", str(e))
-            return None
+                return image_base64.split("base64,")[1]
+            return image_base64
+        except Exception:
+            return image_base64
     
     @staticmethod
     def predict_skin_disease(
-        image: Image.Image,
+        image_base64: str,
         body_part: Optional[str] = None,
         skin_type: str = "normal"
     ) -> Tuple[List[PredictionResult], float]:
         """
-        AI-powered skin disease prediction using Google Gemini
+        AI-powered skin disease prediction using Google Gemini NEW SDK
         Falls back to random if Gemini unavailable
         
         Returns: (list of predictions, confidence score)
@@ -352,6 +351,109 @@ class PredictionService:
                 )
                 predictions.append(prediction)
             return predictions, normalized_confidences[0]
+
+        try:
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            
+            # Clean base64: remove data URL prefix
+            if 'base64,' in image_base64:
+                image_base64 = image_base64.split('base64,')[1]
+            image_bytes = base64.b64decode(image_base64)
+            
+            # Create image part
+            image_part = types.Part.from_bytes(
+                data=image_bytes,
+                mime_type="image/jpeg"
+            )
+            
+            # Safety settings
+            safety_settings = [
+                types.SafetySetting(
+                    category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    threshold="BLOCK_ONLY_HIGH",
+                ),
+                types.SafetySetting(
+                    category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold="BLOCK_NONE",
+                ),
+            ]
+            
+            # Generate structured content
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[
+                    image_part,
+                    """Analyze this skin image for medical conditions.
+
+Return structured JSON with EXACTLY top 3 predictions sorted by confidence.
+
+Format:
+{
+  "top_diseases": [
+    {
+      "disease": "Acne Vulgaris",
+      "confidence": 85.0,  // 0-100 scale
+      "description": "Short medical description",
+      "recommendation": "Actionable medical advice"
+    }
+  ]
+}
+
+Medical accuracy required. No extra text."""
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=GeminiResponse,
+                    safety_settings=safety_settings,
+                    temperature=0.2,
+                ),
+            )
+            
+            # Use structured output (NO manual parsing)
+            if response.parsed and hasattr(response.parsed, 'top_diseases'):
+                gemini_result = response.parsed
+            else:
+                raise ValueError("No structured response from Gemini")
+            
+            predictions_data = []
+            for disease_result in gemini_result.top_diseases:
+                # Convert confidence 0-100 → 0-1
+                conf = min(1.0, max(0.0, disease_result.confidence / 100.0))
+                ingredients = get_ingredient_recommendations(disease_result.disease)["safe"]
+                predictions_data.append({
+                    'disease': disease_result.disease,
+                    'confidence': conf,
+                    'description': disease_result.description,
+                    'recommendation': disease_result.recommendation,
+                    'ingredients': ingredients
+                })
+            
+            # Ensure exactly 3 predictions
+            while len(predictions_data) < 3:
+                fallback = random.choice(SKIN_DISEASES)
+                predictions_data.append({
+                    'disease': fallback['name'],
+                    'confidence': 0.05,
+                    'description': fallback['description'],
+                    'recommendation': fallback['recommendation'],
+                    'ingredients': get_ingredient_recommendations(fallback['name'])['safe']
+                })
+            
+            # Normalize confidence to sum ~1.0
+            conf_sum = sum(p['confidence'] for p in predictions_data)
+            if conf_sum > 0:
+                for p in predictions_data:
+                    p['confidence'] /= conf_sum
+            
+            # Sort descending and create PredictionResult objects
+            predictions_data.sort(key=lambda x: x['confidence'], reverse=True)
+            predictions = [PredictionResult(**p) for p in predictions_data[:3]]
+            
+            return predictions, predictions[0].confidence
+        
+        except Exception as e:
+            logger.error(f"Gemini failed with structured output, using fallback: {str(e)}")
+            # EXACT existing fallback logic
 
         try:
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -515,14 +617,14 @@ Do NOT include markdown or extra text.
         """
         start_time = time.time()
         
-        # Process the image
-        image = PredictionService.process_image_base64(image_base64)
-        if not image:
+        # Process the image (clean base64)
+        clean_image_base64 = PredictionService.process_image_base64(image_base64)
+        if not clean_image_base64:
             return None, "Invalid image data. Please provide a valid image."
         
         # Get predictions from AI model
         predictions, confidence_score = PredictionService.predict_skin_disease(
-            image=image,
+            image_base64=clean_image_base64,
             body_part=body_part,
             skin_type=skin_type
         )
