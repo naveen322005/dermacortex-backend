@@ -454,17 +454,24 @@ Medical accuracy required. No extra text."""
         except Exception as e:
             logger.error(f"Gemini failed with structured output, using fallback: {str(e)}")
             # ✅ FIX: define image
-            image = Image.open(io.BytesIO(image_bytes))
+            try:
+                image_bytes = base64.b64decode(image_base64)
+                image = Image.open(io.BytesIO(image_bytes))
+            except Exception:
+                image = None
             # EXACT existing fallback logic
 
         try:
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             
             # Prepare image (resize to 512x512, RGB)
-            image_resized = image.copy()
-            image_resized.thumbnail((512, 512), Image.Resampling.LANCZOS)
-            if image_resized.mode != 'RGB':
-                image_resized = image_resized.convert('RGB')
+            if image:
+                image_resized = image.copy()
+                image_resized.thumbnail((512, 512), Image.Resampling.LANCZOS)
+                if image_resized.mode != 'RGB':
+                    image_resized = image_resized.convert('RGB')
+            else:
+                raise ValueError("Image processing failed")
             
             prompt = """
 Analyze this skin image and return ONLY JSON (no explanation).
